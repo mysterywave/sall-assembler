@@ -1,0 +1,31 @@
+# START PROGRAM
+mov stack %sp
+mov main %ip
+
+print:
+  peek -2
+  mov %oo %r1
+  WHILE_0:
+    if [%r1] WHILE_END_0
+    out [%r1] 0 
+    add %r1 1
+    mov %oo %r1
+    mov WHILE_0 %ip
+    WHILE_END_0:
+  peek -4
+  mov %oo %ip
+
+main:
+  push RETURN_0
+  push DATA_0
+  mov print %ip
+  RETURN_0:
+  sub %sp 4
+  mov %oo %sp
+  end
+
+# DATA START
+DATA_0: "Hello, world!\n"
+
+# STACK START
+stack:
