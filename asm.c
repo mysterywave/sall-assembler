@@ -6,8 +6,8 @@
 //#define DEBUG_PRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #define DEBUG_PRINTF(fmt, ...)
 
-#define DEBUG_PRINTF2(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
-//#define DEBUG_PRINTF2(fmt, ...)
+//#define DEBUG_PRINTF2(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+#define DEBUG_PRINTF2(fmt, ...)
 
 void cause_segfault() {
     int *i = 0;
@@ -247,7 +247,6 @@ Opcode addressing_mode(char *instruction_name, mem *m) {
             addrmode = CONPTR;
         } else {
             if(strcasecmp(instruction_name,"push8") == 0 || strcasecmp(instruction_name,"mov8") == 0 || strcasecmp(instruction_name,"out") == 0) {
-                printf("FOUND %s\n", instruction_name);
                 m->size = 1;
                 addrmode = CON_8;
             } else {
