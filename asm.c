@@ -6,8 +6,8 @@
 //#define DEBUG_PRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #define DEBUG_PRINTF(fmt, ...)
 
-//#define DEBUG_PRINTF2(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
-#define DEBUG_PRINTF2(fmt, ...)
+#define DEBUG_PRINTF2(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+//#define DEBUG_PRINTF2(fmt, ...)
 
 void cause_segfault() {
     int *i = 0;
@@ -84,6 +84,7 @@ struct opcode_s reg_opcode[] = {
     { 0x04, "%r2" },
     { 0x05, "%r3" },
     { 0x06, "%r4" },
+    { 0x07, "%r5" },
     {0,0}
 };
 
@@ -283,7 +284,7 @@ mem *ins(int type, char*tok, char**ll){
         m->s=strdup(tok); // nope it is an opcode or string or something
         if (type==STRING) {
             sesc(m->s);
-            m->size=strlen(m->s); // if string set length
+            m->size=strlen(m->s) + 1; // if string set length
         }
     }
 
@@ -406,6 +407,8 @@ char* parse(char *b) {
             }
         } else if (!strcasecmp(p,"store")) {
             state=1;
+        } else if (!strcasecmp(p,"addr")) {
+            state=2;
         } else if (*p == '[') {
             if(*(q - 1) != ']') {
                 fail("close your square brackets");
@@ -433,12 +436,18 @@ char* parse(char *b) {
             } else if (val(p,&v,&w)) {
                 m = ins(DATA,p,&lastlab); // why we do this again?
             } else {
-                //printf("opcode:\"%s\"\n", p);
-                mem*m=ins(TEXT,p,&lastlab); // aaaah an opcode. or something
-                int i;
-                for (i=0; opcode[i].name; i++) {
-                    if (!strcasecmp(opcode[i].name, p))
-                        m->opcode = opcode[i].opcode;
+                if(state == 2) {
+                    mem *m = ins(TEXT,p,&lastlab);
+                    m->indirect = 1;
+                    state = 0;
+                } else {
+                    //printf("opcode:\"%s\"\n", p);
+                    mem*m=ins(TEXT,p,&lastlab); // aaaah an opcode. or something
+                    int i;
+                    for (i=0; opcode[i].name; i++) {
+                        if (!strcasecmp(opcode[i].name, p))
+                            m->opcode = opcode[i].opcode;
+                    }
                 }
             }
         }
@@ -463,7 +472,8 @@ void setReg(mem *m) {
             return;
         }
     }
-    fail("weird register");
+    printf("Weird register: %s\n", m->s);
+    exit(1);
 }
 
 // add addresses and addressing modes
@@ -473,26 +483,19 @@ char* fixup(char*ptu) {
 
     for(m=root;m;m=m->next) {
         m->addr = addr;
-        
-        /*printf("fixing up %d\n", m->type);
-        if(m->type == 0) {
-            printf("  \"%s\"\n", m->s);
-        }
-        if(m->arg1) {
-            printf("arg1: %d\n", m->arg1->type);
-        }
-        if(m->arg2) {
-            printf("arg2: %d\n", m->arg2->type);
-        }*/
 
         if (m->type==TEXT) { // aka CODE
             int i;
             for (i=0; opcode[i].name; i++) {
                 if (!strcasecmp(opcode[i].name, m->s)) {
                     m->opcode = opcode[i].opcode;
-                    break;
+                    goto for_end;
                 }
             }
+            m->indirect = 1;
+            addr += 2;
+            continue;
+            for_end:;
 
             // do we have arguments
             if ((strcasecmp(m->s,"end") == 0)) {
@@ -556,7 +559,8 @@ Addr label_addr(char *lab) {
         if (m->lab && !strcmp(m->lab, lab))
             return m->addr;
     }
-    return 0xDEAD;
+    printf("Unknown label: %s\n", lab);
+    exit(1);
 }
 
 // make a pretty print of reconstructed source code
@@ -565,53 +569,57 @@ char *pretty_print(char*tru) {
     DEBUG_PRINTF2("SOURCE LISTING:\n");
     for(m=root;m;m=m->next) {
         if (m->type==TEXT) {
-            if (m->arg1 && m->arg2) {
-                DEBUG_PRINTF2("%04hx %s%c%*s %s ", m->addr,m->lab?m->lab:"", m->lab?':':' ', (int)(m->lab?15-strlen(m->lab):15),"",m->s);
-                if (m->arg1->type == DATA) {
-                    if (m->arg1->indirect) {
-                        DEBUG_PRINTF2("[%hd] ", m->arg1->val);
-                    } else {
-                        DEBUG_PRINTF2("%hd ", m->arg1->val);
-                    }
-                } else {
-                    if (m->arg1->indirect) {
-                        DEBUG_PRINTF2("[%s] ", m->arg1->s);
-                    } else {
-                        DEBUG_PRINTF2("%s ", m->arg1->s);
-                    }
-                }
-                if (m->arg2->type == DATA) {
-                    if (m->arg2->indirect) {
-                        DEBUG_PRINTF2("[%hd]\n", m->arg2->val);
-                    } else {
-                        DEBUG_PRINTF2("%hd\n", m->arg2->val);
-                    }
-                } else {
-                    if (m->arg2->indirect) {
-                        DEBUG_PRINTF2("[%s]\n", m->arg2->s);
-                    } else {
-                        DEBUG_PRINTF2("%s\n", m->arg2->s);
-                    }
-                }
-            } else if (m->arg1) {
-                DEBUG_PRINTF2("%04hx %s%c%*s %s ", m->addr,m->lab?m->lab:"", m->lab?':':' ', (int)(m->lab?15-strlen(m->lab):15),"",m->s);
-                if (m->arg1->type == DATA) {
-                    if (m->arg1->indirect) {
-                        DEBUG_PRINTF2("[%hd]\n", m->arg1->val);
-                    } else {
-                        DEBUG_PRINTF2("%hd\n", m->arg1->val);
-                    }
-                } else {
-                    if (m->arg1->indirect) {
-                        DEBUG_PRINTF2("[%s]\n", m->arg1->s);
-                    } else {
-                        DEBUG_PRINTF2("%s\n", m->arg1->s);
-                    }
-                }
+            if (m->indirect) {
+                DEBUG_PRINTF2("%04hx %s%c%*s %s\n", m->addr,m->lab?m->lab:"", m->lab?':':' ', (int)(m->lab?15-strlen(m->lab):15),"",m->s);
             } else {
-                DEBUG_PRINTF2("%04hx %s%c%*s %s\n", m->addr,
-                    m->lab?m->lab:"", m->lab?':':' ', (int)(m->lab?15-strlen(m->lab):15),"",
-                    m->s?m->s:"");
+                if (m->arg1 && m->arg2) {
+                    DEBUG_PRINTF2("%04hx %s%c%*s %s ", m->addr,m->lab?m->lab:"", m->lab?':':' ', (int)(m->lab?15-strlen(m->lab):15),"",m->s);
+                    if (m->arg1->type == DATA) {
+                        if (m->arg1->indirect) {
+                            DEBUG_PRINTF2("[%hd] ", m->arg1->val);
+                        } else {
+                            DEBUG_PRINTF2("%hd ", m->arg1->val);
+                        }
+                    } else {
+                        if (m->arg1->indirect) {
+                            DEBUG_PRINTF2("[%s] ", m->arg1->s);
+                        } else {
+                            DEBUG_PRINTF2("%s ", m->arg1->s);
+                        }
+                    }
+                    if (m->arg2->type == DATA) {
+                        if (m->arg2->indirect) {
+                            DEBUG_PRINTF2("[%hd]\n", m->arg2->val);
+                        } else {
+                            DEBUG_PRINTF2("%hd\n", m->arg2->val);
+                        }
+                    } else {
+                        if (m->arg2->indirect) {
+                            DEBUG_PRINTF2("[%s]\n", m->arg2->s);
+                        } else {
+                            DEBUG_PRINTF2("%s\n", m->arg2->s);
+                        }
+                    }
+                } else if (m->arg1) {
+                    DEBUG_PRINTF2("%04hx %s%c%*s %s ", m->addr,m->lab?m->lab:"", m->lab?':':' ', (int)(m->lab?15-strlen(m->lab):15),"",m->s);
+                    if (m->arg1->type == DATA) {
+                        if (m->arg1->indirect) {
+                            DEBUG_PRINTF2("[%hd]\n", m->arg1->val);
+                        } else {
+                            DEBUG_PRINTF2("%hd\n", m->arg1->val);
+                        }
+                    } else {
+                        if (m->arg1->indirect) {
+                            DEBUG_PRINTF2("[%s]\n", m->arg1->s);
+                        } else {
+                            DEBUG_PRINTF2("%s\n", m->arg1->s);
+                        }
+                    }
+                } else {
+                    DEBUG_PRINTF2("%04hx %s%c%*s %s\n", m->addr,
+                        m->lab?m->lab:"", m->lab?':':' ', (int)(m->lab?15-strlen(m->lab):15),"",
+                        m->s?m->s:"");
+                }
             }
         } else if (m->type==STRING) {
             DEBUG_PRINTF2("%04hx %s%c%*s \"%s\"\n", m->addr,
@@ -647,36 +655,40 @@ char *gen_pretty_print(char*tru) {
     DEBUG_PRINTF2("BINARY OUTPUT:\n");
     for(m=root; m; m=m->next) {
         if (m->type == TEXT) {
-            DEBUG_PRINTF2("%04hx | %02hhx", m->addr, m->opcode);
-            if (m->arg1) {
-                if (m->arg1->type == TEXT)
-                    //printf(" %s", m->arg1->s);
-                    DEBUG_PRINTF2(" %04x", label_addr(m->arg1->s));
-                else if (m->arg1->type == REGISTER)
-                    DEBUG_PRINTF2(" %02x", m->arg1->val);
-                else if (m->arg1->type == DATA)
-                    if(m->arg1->size == 2) {
-                        DEBUG_PRINTF2(" %04x", m->arg1->val);
-                    } else {
+            if(m->indirect) {
+                DEBUG_PRINTF2("%04hx | %04x", m->addr, label_addr(m->s));
+            } else {
+                DEBUG_PRINTF2("%04hx | %02hhx", m->addr, m->opcode);
+                if (m->arg1) {
+                    if (m->arg1->type == TEXT)
+                        //printf(" %s", m->arg1->s);
+                        DEBUG_PRINTF2(" %04x", label_addr(m->arg1->s));
+                    else if (m->arg1->type == REGISTER)
                         DEBUG_PRINTF2(" %02x", m->arg1->val);
-                    }
-                else
-                    DEBUG_PRINTF2(" %04x", 0);
-            }
-            if (m->arg2) {
-                if (m->arg2->type == TEXT)
-                    //printf(" %s", m->arg2->s);
-                    DEBUG_PRINTF2(" %04x", label_addr(m->arg2->s));
-                else if (m->arg2->type == REGISTER)
-                    DEBUG_PRINTF2(" %02x", m->arg2->val);
-                else if (m->arg2->type == DATA)
-                    if(m->arg2->size == 2) {
-                        DEBUG_PRINTF2(" %04x", m->arg2->val);
-                    } else {
+                    else if (m->arg1->type == DATA)
+                        if(m->arg1->size == 2) {
+                            DEBUG_PRINTF2(" %04x", m->arg1->val);
+                        } else {
+                            DEBUG_PRINTF2(" %02x", m->arg1->val);
+                        }
+                    else
+                        DEBUG_PRINTF2(" %04x", 0);
+                }
+                if (m->arg2) {
+                    if (m->arg2->type == TEXT)
+                        //printf(" %s", m->arg2->s);
+                        DEBUG_PRINTF2(" %04x", label_addr(m->arg2->s));
+                    else if (m->arg2->type == REGISTER)
                         DEBUG_PRINTF2(" %02x", m->arg2->val);
-                    }
-                else
-                    DEBUG_PRINTF2(" %04x", 0);
+                    else if (m->arg2->type == DATA)
+                        if(m->arg2->size == 2) {
+                            DEBUG_PRINTF2(" %04x", m->arg2->val);
+                        } else {
+                            DEBUG_PRINTF2(" %02x", m->arg2->val);
+                        }
+                    else
+                        DEBUG_PRINTF2(" %04x", 0);
+                }
             }
         } else if (m->type == DATA) {
             if (m->size == 1)
@@ -724,34 +736,38 @@ char *gen_binary(FILE *fpout) {
 
     for(m=root; m; m=m->next) {
         if (m->type == TEXT) {
-            fputc(m->opcode, fpout);
-            if (m->arg1) {
-                if (m->arg1->type == TEXT)
-                    fputw(label_addr(m->arg1->s), fpout);
-                else if (m->arg1->type == REGISTER)
-                    fputc(m->arg1->val, fpout);
-                else if (m->arg1->type == DATA)
-                    if(m->arg1->size == 2) {
-                        fputw(m->arg1->val, fpout);
-                    } else {
+            if(m->indirect) {
+                fputw(label_addr(m->s), fpout);
+            } else {
+                fputc(m->opcode, fpout);
+                if (m->arg1) {
+                    if (m->arg1->type == TEXT)
+                        fputw(label_addr(m->arg1->s), fpout);
+                    else if (m->arg1->type == REGISTER)
                         fputc(m->arg1->val, fpout);
-                    }
-                else
-                    fputw(0, fpout);
-            }
-            if (m->arg2) {
-                if (m->arg2->type == TEXT)
-                    fputw(label_addr(m->arg2->s), fpout);
-                else if (m->arg2->type == REGISTER)
-                    fputc(m->arg2->val, fpout);
-                else if (m->arg2->type == DATA)
-                    if(m->arg2->size == 2) {
-                        fputw(m->arg2->val, fpout);
-                    } else {
+                    else if (m->arg1->type == DATA)
+                        if(m->arg1->size == 2) {
+                            fputw(m->arg1->val, fpout);
+                        } else {
+                            fputc(m->arg1->val, fpout);
+                        }
+                    else
+                        fputw(0, fpout);
+                }
+                if (m->arg2) {
+                    if (m->arg2->type == TEXT)
+                        fputw(label_addr(m->arg2->s), fpout);
+                    else if (m->arg2->type == REGISTER)
                         fputc(m->arg2->val, fpout);
-                    }
-                else
-                    fputw(0, fpout);
+                    else if (m->arg2->type == DATA)
+                        if(m->arg2->size == 2) {
+                            fputw(m->arg2->val, fpout);
+                        } else {
+                            fputc(m->arg2->val, fpout);
+                        }
+                    else
+                        fputw(0, fpout);
+                }
             }
         } else if (m->type == DATA) {
             if (m->size == 1)
@@ -772,6 +788,7 @@ char *gen_binary(FILE *fpout) {
         } else if (m->type == STRING) {
             char *p;
             for (p = m->s; *p; p++) fputc(*p, fpout);
+            fputc(0, fpout);
             /*fputw(m->addr, fpout);
             char *p = m->s;
             for ( ; *p; p++)
